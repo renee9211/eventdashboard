@@ -1,7 +1,7 @@
 import {
   auth, db, provider, signInWithPopup, signOut, onAuthStateChanged,
   collection, doc, getDocs, getDoc, setDoc, deleteDoc, serverTimestamp
-} from "./firebase.js";
+} from "./firebase.js?v=20260820-popup-v1";
 
 const WORKSPACE_KEY = "event-report-workspace-v1";
 const LEGACY_KEY = "post-event-report-system-v1";
@@ -41,7 +41,8 @@ loginBtn.addEventListener("click", async () => {
   authMessage.textContent = "Opening Google sign-in…";
   loginBtn.disabled = true;
   try {
-    await signInWithPopup(auth, provider);
+    const result = await signInWithPopup(auth, provider);
+    if (result?.user) authMessage.textContent = "Google 登入成功，正在載入專案…";
   } catch (e) {
     console.error(e);
     if (e?.code === "auth/popup-blocked") {
@@ -244,7 +245,7 @@ onAuthStateChanged(auth, async user => {
     installCloudSave(user);
     showApp(user);
     started = true;
-    await import("./app.js?v=20260820-role-v3");
+    await import("./app.js?v=20260820-role-v4");
     applyViewerMode();
   } catch (e) {
     console.error(e);
