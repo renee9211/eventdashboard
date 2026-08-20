@@ -59,9 +59,17 @@ try {
 async function ensureUserProfile(user) {
   const ref = doc(db, "users", user.uid);
   const existing = await getDoc(ref);
+  const allUsers = await getDocs(collection(db, "users"));
+  const admins = allUsers.docs.filter(d => d.data()?.role === "admin");
+
+  // Recovery rule: the system must always have at least one admin.
   if (existing.exists()) {
     const data = existing.data();
     currentRole = data.role || "viewer";
+    if (admins.length === 0) {
+      currentRole = "admin";
+      await setDoc(ref, { role: "admin", recoveredAdminAt: serverTimestamp() }, { merge: true });
+    }
     await setDoc(ref, {
       displayName: user.displayName || data.displayName || "",
       email: user.email || data.email || "",
@@ -70,8 +78,7 @@ async function ensureUserProfile(user) {
     return;
   }
 
-  const allUsers = await getDocs(collection(db, "users"));
-  currentRole = allUsers.empty ? "admin" : "viewer";
+  currentRole = allUsers.empty || admins.length === 0 ? "admin" : "viewer";
   await setDoc(ref, {
     uid: user.uid,
     displayName: user.displayName || "",
@@ -188,17 +195,32 @@ function applyViewerMode() {
 async function renderUsers() {
   if (currentRole !== "admin") return;
   const snap = await getDocs(collection(db, "users"));
+  const adminIds = snap.docs.filter(d => d.data()?.role === "admin").map(d => d.id);
   usersList.innerHTML = snap.docs.map(d => {
     const u = d.data();
-    return `<div class="user-row"><div><strong>${u.displayName || "Unnamed"}</strong><span>${u.email || ""}</span></div><select data-uid="${d.id}"><option value="admin" ${u.role==="admin"?"selected":""}>Admin</option><option value="editor" ${u.role==="editor"?"selected":""}>Editor</option><option value="viewer" ${u.role==="viewer"?"selected":""}>Viewer</option></select></div>`;
+    return `<div class="user-row"><div><strong>${u.displayName || "Unnamed"}</strong><span>${u.email || ""}</span></div><select data-uid="${d.id}" data-original="${u.role || "viewer"}"><option value="admin" ${u.role==="admin"?"selected":""}>Admin</option><option value="editor" ${u.role==="editor"?"selected":""}>Editor</option><option value="viewer" ${u.role==="viewer"?"selected":""}>Viewer</option></select></div>`;
   }).join("") || '<div class="empty">No users yet.</div>';
+
   usersList.querySelectorAll("select[data-uid]").forEach(sel => {
     sel.onchange = async () => {
-      await setDoc(doc(db, "users", sel.dataset.uid), { role: sel.value, updatedAt: serverTimestamp() }, { merge: true });
-      if (sel.dataset.uid === auth.currentUser.uid) {
-        currentRole = sel.value;
+      const targetUid = sel.dataset.uid;
+      const original = sel.dataset.original || "viewer";
+      const next = sel.value;
+      const isLastAdmin = original === "admin" && adminIds.length === 1;
+
+      if (isLastAdmin && next !== "admin") {
+        alert("系統至少需要保留一位 Admin，最後一位 Admin 不能降級。");
+        sel.value = "admin";
+        return;
+      }
+
+      await setDoc(doc(db, "users", targetUid), { role: next, updatedAt: serverTimestamp() }, { merge: true });
+      sel.dataset.original = next;
+      if (targetUid === auth.currentUser.uid) {
+        currentRole = next;
         showApp(auth.currentUser);
       }
+      await renderUsers();
     };
   });
 }
@@ -224,7 +246,7 @@ onAuthStateChanged(auth, async user => {
     installCloudSave(user);
     showApp(user);
     started = true;
-    await import("./app.js?v=20260820-role-v1");
+    await import("./app.js?v=20260820-role-v2");
     applyViewerMode();
   } catch (e) {
     console.error(e);
