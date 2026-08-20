@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Post Event Report System</title>
+  <link rel="stylesheet" href="./style.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-mark">PR</div>
+        <div>
+          <strong>Post Report</strong>
+          <span>Project Closeout System</span>
+        </div>
+      </div>
+
+      <nav id="projectNav" class="nav">
+        <button class="nav-item active" data-view="overview">Overview</button>
+
+        <div class="nav-label">PROJECT</div>
+        <button class="nav-item" data-view="event-info">Event Info</button>
+        <button class="nav-item" data-view="visual">Event KV</button>
+        <button class="nav-item" data-view="agenda">Agenda</button>
+        <button class="nav-item" data-view="speakers">Speakers</button>
+        <button class="nav-item" data-view="rsvp">RSVP / Attendance</button>
+
+        <div class="nav-label">ASSETS</div>
+        <button class="nav-item" data-view="photos">Event Photos</button>
+        <button class="nav-item" data-view="collaterals">Collaterals</button>
+        <button class="nav-item" data-view="giveaway">Giveaway</button>
+        <button class="nav-item" data-view="media">Media Promotion</button>
+
+        <div class="nav-label">POST EVENT</div>
+        <button class="nav-item" data-view="survey">Survey</button>
+        <button class="nav-item" data-view="recap">Recap</button>
+        <button class="nav-item report-nav" data-view="report">Report</button>
+      </nav>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <div>
+          <div class="eyebrow">PROJECT</div>
+          <h1 id="projectTitle">Untitled Event</h1>
+          <div id="projectMeta" class="project-meta">尚未設定活動日期與場地</div>
+        </div>
+        <div class="top-actions">
+          <span id="saveState" class="save-state">Saved locally</span>
+          <button id="newProjectBtn" class="button ghost">New Project</button>
+          <button class="button primary" data-jump="report">Generate Report</button>
+        </div>
+      </header>
+
+      <section id="viewRoot"></section>
+    </main>
+  </div>
+
+  <template id="overviewTemplate">
+    <div class="page">
+      <div class="hero-card">
+        <div>
+          <div class="eyebrow">POST EVENT REPORT WORKFLOW</div>
+          <h2>從活動資料一路整理到結案報告</h2>
+          <p>活動前建立一次資料；活動後只補出席、照片、問卷與 Recap，再統一產出報告。</p>
+        </div>
+        <div class="hero-progress">
+          <div class="progress-ring"><span id="completionPercent">0%</span></div>
+          <small>Report readiness</small>
+        </div>
+      </div>
+
+      <div class="section-head">
+        <div>
+          <h3>Project Readiness</h3>
+          <p>每個區塊完成後，報告就會自動取得可用資料。</p>
+        </div>
+      </div>
+
+      <div id="readinessGrid" class="readiness-grid"></div>
+    </div>
+  </template>
+
+  <template id="formTemplate">
+    <div class="page">
+      <div class="section-head">
+        <div>
+          <div class="eyebrow" id="formEyebrow"></div>
+          <h2 id="formTitle"></h2>
+          <p id="formDesc"></p>
+        </div>
+      </div>
+      <div id="formContent"></div>
+    </div>
+  </template>
+
+  <script type="module" src="./app.js"></script>
+</body>
+</html>
