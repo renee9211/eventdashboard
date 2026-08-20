@@ -61,16 +61,10 @@ logoutBtn.addEventListener("click", () => signOut(auth));
 async function ensureUserProfile(user) {
   const ref = doc(db, "users", user.uid);
   const existing = await getDoc(ref);
-  const allUsers = await getDocs(collection(db, "users"));
-  const admins = allUsers.docs.filter(d => d.data()?.role === "admin");
 
   if (existing.exists()) {
     const data = existing.data();
-    currentRole = data.role || "viewer";
-    if (admins.length === 0) {
-      currentRole = "admin";
-      await setDoc(ref, { role: "admin", recoveredAdminAt: serverTimestamp() }, { merge: true });
-    }
+    currentRole = ["admin", "editor", "viewer"].includes(data.role) ? data.role : "viewer";
     await setDoc(ref, {
       displayName: user.displayName || data.displayName || "",
       email: user.email || data.email || "",
@@ -79,12 +73,14 @@ async function ensureUserProfile(user) {
     return;
   }
 
-  currentRole = allUsers.empty || admins.length === 0 ? "admin" : "viewer";
+  // After the first admin has been established, every newly signed-in account starts as Viewer.
+  // Admin promotion is intentionally handled only through the Users panel.
+  currentRole = "viewer";
   await setDoc(ref, {
     uid: user.uid,
     displayName: user.displayName || "",
     email: user.email || "",
-    role: currentRole,
+    role: "viewer",
     createdAt: serverTimestamp(),
     lastLoginAt: serverTimestamp()
   });
@@ -175,7 +171,8 @@ function installCloudSave(user) {
         const s = document.querySelector("#saveState"); if (s) s.textContent = "Saved to Firestore";
       } catch (e) {
         console.error(e);
-        const s = document.querySelector("#saveState"); if (s) s.textContent = "Firestore save failed";
+        const s = document.querySelector("#saveState");
+        if (s) s.textContent = e?.code === "permission-denied" ? "Permission denied" : "Firestore save failed";
       }
     }, 500);
   };
@@ -213,13 +210,19 @@ async function renderUsers() {
         sel.value = "admin";
         return;
       }
-      await setDoc(doc(db, "users", targetUid), { role: next, updatedAt: serverTimestamp() }, { merge: true });
-      sel.dataset.original = next;
-      if (targetUid === auth.currentUser.uid) {
-        currentRole = next;
-        showApp(auth.currentUser);
+      try {
+        await setDoc(doc(db, "users", targetUid), { role: next, updatedAt: serverTimestamp() }, { merge: true });
+        sel.dataset.original = next;
+        if (targetUid === auth.currentUser.uid) {
+          currentRole = next;
+          showApp(auth.currentUser);
+        }
+        await renderUsers();
+      } catch (e) {
+        console.error(e);
+        alert("角色更新失敗：你目前沒有這個操作權限。");
+        sel.value = original;
       }
-      await renderUsers();
     };
   });
 }
@@ -245,7 +248,7 @@ onAuthStateChanged(auth, async user => {
     installCloudSave(user);
     showApp(user);
     started = true;
-    await import("./app.js?v=20260820-role-v4");
+    await import("./app.js?v=20260820-role-secure-v1");
     applyViewerMode();
   } catch (e) {
     console.error(e);
