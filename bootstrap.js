@@ -1,6 +1,6 @@
 import {
   auth, db, provider, signInWithRedirect, getRedirectResult, signOut, onAuthStateChanged,
-  doc, getDoc, setDoc, serverTimestamp
+  collection, doc, getDocs, setDoc, deleteDoc, serverTimestamp
 } from "./firebase.js";
 
 const WORKSPACE_KEY = "event-report-workspace-v1";
@@ -12,8 +12,8 @@ const logoutBtn = document.querySelector("#logoutBtn");
 const authMessage = document.querySelector("#authMessage");
 const userName = document.querySelector("#userName");
 let started = false;
-let cloudRef = null;
 let saveTimer = null;
+let knownProjectIds = new Set();
 
 function showGate(message = "請登入以繼續") {
   gate.classList.remove("auth-hidden");
@@ -46,60 +46,123 @@ try {
   authMessage.textContent = `登入失敗：${e.message}`;
 }
 
-async function loadSharedWorkspace(user) {
-  cloudRef = doc(db, "shared", "workspace");
-  const snap = await getDoc(cloudRef);
-  if (snap.exists() && snap.data().workspace) {
-    localStorage.setItem(WORKSPACE_KEY, JSON.stringify(snap.data().workspace));
-    return;
+function stripBinary(project) {
+  const p = JSON.parse(JSON.stringify(project || {}));
+  if (p.visual) {
+    p.visual.kvDataUrl = "";
   }
+  if (Array.isArray(p.speakers)) {
+    p.speakers = p.speakers.map(s => ({ ...s, photo: "" }));
+  }
+  if (Array.isArray(p.photos)) {
+    p.photos = p.photos.map(({ data, ...rest }) => rest);
+  }
+  return p;
+}
 
-  let local = localStorage.getItem(WORKSPACE_KEY);
-  if (!local) {
-    const legacy = localStorage.getItem(LEGACY_KEY);
-    if (legacy) {
-      try {
-        const p = JSON.parse(legacy);
-        local = JSON.stringify({ projects: [p], activeId: p.id || null });
-        localStorage.setItem(WORKSPACE_KEY, local);
-      } catch {}
+function mergeLocalAssets(cloudProject, localProject) {
+  if (!localProject) return cloudProject;
+  const merged = JSON.parse(JSON.stringify(cloudProject));
+  if (localProject.visual?.kvDataUrl) {
+    merged.visual = { ...(merged.visual || {}), kvDataUrl: localProject.visual.kvDataUrl };
+  }
+  if (Array.isArray(merged.speakers)) {
+    const localById = new Map((localProject.speakers || []).map(s => [s.id, s]));
+    merged.speakers = merged.speakers.map(s => ({ ...s, photo: localById.get(s.id)?.photo || s.photo || "" }));
+  }
+  if (Array.isArray(merged.photos)) {
+    const localById = new Map((localProject.photos || []).map(p => [p.id, p]));
+    merged.photos = merged.photos.map(p => ({ ...p, data: localById.get(p.id)?.data || "" }));
+  }
+  return merged;
+}
+
+async function loadProjectsFromFirestore(user) {
+  const snap = await getDocs(collection(db, "projects"));
+  const localWorkspace = (() => {
+    try { return JSON.parse(localStorage.getItem(WORKSPACE_KEY) || "null"); }
+    catch { return null; }
+  })();
+  const localById = new Map((localWorkspace?.projects || []).map(p => [p.id, p]));
+  let projects = snap.docs.map(d => {
+    const raw = d.data()?.data || d.data();
+    const project = { ...raw, id: raw.id || d.id };
+    return mergeLocalAssets(project, localById.get(project.id));
+  });
+
+  if (!projects.length) {
+    let migration = localWorkspace;
+    if (!migration) {
+      const legacy = localStorage.getItem(LEGACY_KEY);
+      if (legacy) {
+        try {
+          const p = JSON.parse(legacy);
+          migration = { projects: [p], activeId: p.id || null };
+        } catch {}
+      }
+    }
+    if (migration?.projects?.length) {
+      for (const p of migration.projects) {
+        if (!p.id) continue;
+        await setDoc(doc(db, "projects", p.id), {
+          data: stripBinary(p),
+          createdBy: user.uid,
+          createdByEmail: user.email || "",
+          updatedBy: user.uid,
+          updatedByEmail: user.email || "",
+          updatedAt: serverTimestamp()
+        }, { merge: true });
+      }
+      projects = migration.projects;
     }
   }
 
-  const workspace = local ? JSON.parse(local) : { projects: [], activeId: null };
-  await setDoc(cloudRef, {
-    workspace,
-    createdBy: user.uid,
-    createdByEmail: user.email || "",
-    updatedBy: user.uid,
-    updatedByEmail: user.email || "",
-    updatedAt: serverTimestamp()
-  }, { merge: true });
+  knownProjectIds = new Set(projects.map(p => p.id).filter(Boolean));
+  localStorage.setItem(WORKSPACE_KEY, JSON.stringify({ projects, activeId: localWorkspace?.activeId || null }));
+}
+
+async function syncWorkspaceToFirestore(workspace, user) {
+  const projects = workspace?.projects || [];
+  const currentIds = new Set(projects.map(p => p.id).filter(Boolean));
+
+  for (const p of projects) {
+    if (!p.id) continue;
+    await setDoc(doc(db, "projects", p.id), {
+      data: stripBinary(p),
+      updatedBy: user.uid,
+      updatedByEmail: user.email || "",
+      updatedAt: serverTimestamp(),
+      ...(knownProjectIds.has(p.id) ? {} : {
+        createdBy: user.uid,
+        createdByEmail: user.email || ""
+      })
+    }, { merge: true });
+  }
+
+  for (const id of knownProjectIds) {
+    if (!currentIds.has(id)) await deleteDoc(doc(db, "projects", id));
+  }
+  knownProjectIds = currentIds;
 }
 
 function installCloudSave(user) {
   const nativeSet = localStorage.setItem.bind(localStorage);
   localStorage.setItem = function(key, value) {
     nativeSet(key, value);
-    if (key !== WORKSPACE_KEY || !cloudRef) return;
+    if (key !== WORKSPACE_KEY) return;
     clearTimeout(saveTimer);
     saveTimer = setTimeout(async () => {
       try {
         const workspace = JSON.parse(value);
-        await setDoc(cloudRef, {
-          workspace,
-          updatedBy: user.uid,
-          updatedByEmail: user.email || "",
-          updatedAt: serverTimestamp()
-        }, { merge: true });
+        await syncWorkspaceToFirestore(workspace, user);
         const s = document.querySelector("#saveState");
-        if (s) s.textContent = "Saved to Firebase";
+        if (s) s.textContent = "Saved to Firestore";
       } catch (e) {
         console.error(e);
         const s = document.querySelector("#saveState");
-        if (s) s.textContent = "Firebase save failed";
+        if (s) s.textContent = "Firestore save failed";
       }
-    }, 450);
+    }, 500);
   };
 }
 
@@ -111,8 +174,8 @@ onAuthStateChanged(auth, async user => {
   }
   if (started) { showApp(user); return; }
   try {
-    authMessage.textContent = "Loading shared projects from Firebase…";
-    await loadSharedWorkspace(user);
+    authMessage.textContent = "Loading shared projects from Firestore…";
+    await loadProjectsFromFirestore(user);
     installCloudSave(user);
     showApp(user);
     started = true;
