@@ -1,5 +1,5 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js";
-import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js";
+import { getAuth, GoogleAuthProvider, signInWithRedirect, getRedirectResult, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js";
 import { getFirestore, collection, doc, getDocs, getDoc, setDoc, addDoc, updateDoc, deleteDoc, serverTimestamp, query, orderBy } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
 
 const firebaseConfig = {
@@ -20,7 +20,7 @@ provider.setCustomParameters({ prompt: "select_account" });
 
 export {
   auth, db, provider,
-  signInWithPopup, signOut, onAuthStateChanged,
+  signInWithRedirect, getRedirectResult, signOut, onAuthStateChanged,
   collection, doc, getDocs, getDoc, setDoc, addDoc, updateDoc, deleteDoc,
   serverTimestamp, query, orderBy
 };
