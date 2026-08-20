@@ -1,5 +1,5 @@
 import {
-  auth, db, provider, signInWithPopup, signOut, onAuthStateChanged,
+  auth, db, provider, signInWithRedirect, getRedirectResult, signOut, onAuthStateChanged,
   doc, getDoc, setDoc, serverTimestamp
 } from "./firebase.js";
 
@@ -28,11 +28,24 @@ function showApp(user) {
 }
 
 loginBtn.addEventListener("click", async () => {
-  authMessage.textContent = "Opening Google sign-in…";
-  try { await signInWithPopup(auth, provider); }
-  catch (e) { authMessage.textContent = `登入失敗：${e.message}`; }
+  authMessage.textContent = "Redirecting to Google sign-in…";
+  loginBtn.disabled = true;
+  try {
+    await signInWithRedirect(auth, provider);
+  } catch (e) {
+    loginBtn.disabled = false;
+    authMessage.textContent = `登入失敗：${e.message}`;
+  }
 });
 logoutBtn.addEventListener("click", () => signOut(auth));
+
+try {
+  const result = await getRedirectResult(auth);
+  if (result?.user) authMessage.textContent = "Google 登入成功，正在載入專案…";
+} catch (e) {
+  console.error(e);
+  authMessage.textContent = `登入失敗：${e.message}`;
+}
 
 async function loadCloudWorkspace(user) {
   cloudRef = doc(db, "workspaces", user.uid);
@@ -83,7 +96,11 @@ function installCloudSave(user) {
 }
 
 onAuthStateChanged(auth, async user => {
-  if (!user) { showGate("請使用 Google 帳號登入"); return; }
+  if (!user) {
+    loginBtn.disabled = false;
+    showGate("請使用 Google 帳號登入");
+    return;
+  }
   if (started) { showApp(user); return; }
   try {
     authMessage.textContent = "Loading projects from Firebase…";
