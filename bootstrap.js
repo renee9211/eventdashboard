@@ -5,6 +5,7 @@ import {
 
 const WORKSPACE_KEY = "event-report-workspace-v1";
 const LEGACY_KEY = "post-event-report-system-v1";
+const STRUCTURED = ["agenda", "speakers", "attendees"];
 const gate = document.querySelector("#authGate");
 const systemApp = document.querySelector("#systemApp");
 const loginBtn = document.querySelector("#googleLoginBtn");
@@ -18,10 +19,15 @@ const usersList = document.querySelector("#usersList");
 let started = false;
 let saveTimer = null;
 let knownProjectIds = new Set();
+let knownChildIds = new Map();
 let currentRole = "viewer";
 let activeUid = null;
 let cloudSaveInstalled = false;
 let viewerObserver = null;
+
+const childKey = (projectId, type) => `${projectId}:${type}`;
+const getKnownChildren = (projectId, type) => knownChildIds.get(childKey(projectId, type)) || new Set();
+const setKnownChildren = (projectId, type, ids) => knownChildIds.set(childKey(projectId, type), new Set(ids));
 
 function showGate(message = "請登入以繼續") {
   gate.classList.remove("auth-hidden");
@@ -55,13 +61,9 @@ loginBtn.addEventListener("click", async () => {
     if (result?.user) authMessage.textContent = "Google 登入成功，正在載入權限…";
   } catch (e) {
     console.error(e);
-    if (e?.code === "auth/popup-blocked") {
-      authMessage.textContent = "登入視窗被瀏覽器阻擋，請允許此網站的彈出式視窗後再試一次。";
-    } else if (e?.code === "auth/popup-closed-by-user") {
-      authMessage.textContent = "登入視窗已關閉，請再按一次 Continue with Google。";
-    } else {
-      authMessage.textContent = `登入失敗：${e.message}`;
-    }
+    if (e?.code === "auth/popup-blocked") authMessage.textContent = "登入視窗被瀏覽器阻擋，請允許此網站的彈出式視窗後再試一次。";
+    else if (e?.code === "auth/popup-closed-by-user") authMessage.textContent = "登入視窗已關閉，請再按一次 Continue with Google。";
+    else authMessage.textContent = `登入失敗：${e.message}`;
   } finally {
     loginBtn.disabled = false;
   }
@@ -75,7 +77,6 @@ logoutBtn.addEventListener("click", async () => {
 async function ensureUserProfile(user) {
   const ref = doc(db, "users", user.uid);
   const existing = await getDoc(ref);
-
   if (existing.exists()) {
     const data = existing.data();
     currentRole = ["admin", "editor", "viewer"].includes(data.role) ? data.role : "viewer";
@@ -86,7 +87,6 @@ async function ensureUserProfile(user) {
     }, { merge: true });
     return;
   }
-
   currentRole = "viewer";
   await setDoc(ref, {
     uid: user.uid,
@@ -98,10 +98,10 @@ async function ensureUserProfile(user) {
   });
 }
 
-function stripBinary(project) {
+function projectCore(project) {
   const p = JSON.parse(JSON.stringify(project || {}));
+  STRUCTURED.forEach(k => delete p[k]);
   if (p.visual) p.visual.kvDataUrl = "";
-  if (Array.isArray(p.speakers)) p.speakers = p.speakers.map(s => ({ ...s, photo: "" }));
   if (Array.isArray(p.photos)) p.photos = p.photos.map(({ data, ...rest }) => rest);
   return p;
 }
@@ -121,14 +121,57 @@ function mergeLocalAssets(cloudProject, localProject) {
   return merged;
 }
 
+async function readChildCollection(projectId, type) {
+  const snap = await getDocs(collection(db, "projects", projectId, type));
+  const rows = snap.docs.map(d => ({ ...d.data(), id: d.data()?.id || d.id }));
+  setKnownChildren(projectId, type, rows.map(x => x.id).filter(Boolean));
+  return rows;
+}
+
+async function migrateLegacyChildren(projectId, type, legacyRows, user) {
+  if (currentRole === "viewer" || !Array.isArray(legacyRows) || !legacyRows.length) return legacyRows || [];
+  const rows = [];
+  for (let i = 0; i < legacyRows.length; i++) {
+    const source = legacyRows[i] || {};
+    const id = source.id || `${type}-${Date.now().toString(36)}-${i}`;
+    const clean = { ...source, id };
+    if (type === "speakers") clean.photo = "";
+    await setDoc(doc(db, "projects", projectId, type, id), {
+      ...clean,
+      updatedBy: user.uid,
+      updatedByEmail: user.email || "",
+      updatedAt: serverTimestamp()
+    }, { merge: true });
+    rows.push({ ...source, id });
+  }
+  setKnownChildren(projectId, type, rows.map(x => x.id));
+  return rows;
+}
+
+async function hydrateStructuredData(project, raw, user) {
+  const result = { ...project };
+  for (const type of STRUCTURED) {
+    let cloudRows = await readChildCollection(project.id, type);
+    const legacyRows = Array.isArray(raw?.[type]) ? raw[type] : [];
+    if (!cloudRows.length && legacyRows.length) cloudRows = await migrateLegacyChildren(project.id, type, legacyRows, user);
+    result[type] = cloudRows.length ? cloudRows : legacyRows;
+  }
+  return result;
+}
+
 async function loadProjectsFromFirestore(user) {
   const snap = await getDocs(collection(db, "projects"));
   const localWorkspace = (() => { try { return JSON.parse(localStorage.getItem(WORKSPACE_KEY) || "null"); } catch { return null; } })();
   const localById = new Map((localWorkspace?.projects || []).map(p => [p.id, p]));
-  let projects = snap.docs.map(d => {
+  knownChildIds = new Map();
+
+  let projects = [];
+  for (const d of snap.docs) {
     const raw = d.data()?.data || d.data();
-    return mergeLocalAssets({ ...raw, id: raw.id || d.id }, localById.get(raw.id || d.id));
-  });
+    const base = { ...raw, id: raw.id || d.id };
+    const hydrated = await hydrateStructuredData(base, raw, user);
+    projects.push(mergeLocalAssets(hydrated, localById.get(hydrated.id)));
+  }
 
   if (!projects.length && currentRole !== "viewer") {
     let migration = localWorkspace;
@@ -142,9 +185,14 @@ async function loadProjectsFromFirestore(user) {
       for (const p of migration.projects) {
         if (!p.id) continue;
         await setDoc(doc(db, "projects", p.id), {
-          data: stripBinary(p), createdBy: user.uid, createdByEmail: user.email || "",
-          updatedBy: user.uid, updatedByEmail: user.email || "", updatedAt: serverTimestamp()
+          data: projectCore(p),
+          createdBy: user.uid,
+          createdByEmail: user.email || "",
+          updatedBy: user.uid,
+          updatedByEmail: user.email || "",
+          updatedAt: serverTimestamp()
         }, { merge: true });
+        for (const type of STRUCTURED) await migrateLegacyChildren(p.id, type, p[type] || [], user);
       }
       projects = migration.projects;
     }
@@ -154,19 +202,52 @@ async function loadProjectsFromFirestore(user) {
   localStorage.setItem(WORKSPACE_KEY, JSON.stringify({ projects, activeId: localWorkspace?.activeId || null }));
 }
 
+async function syncChildCollection(projectId, type, rows, user) {
+  const current = Array.isArray(rows) ? rows : [];
+  const currentIds = new Set();
+  for (let i = 0; i < current.length; i++) {
+    const source = current[i] || {};
+    const id = source.id || `${type}-${Date.now().toString(36)}-${i}`;
+    source.id = id;
+    currentIds.add(id);
+    const clean = { ...source, id };
+    if (type === "speakers") clean.photo = "";
+    await setDoc(doc(db, "projects", projectId, type, id), {
+      ...clean,
+      updatedBy: user.uid,
+      updatedByEmail: user.email || "",
+      updatedAt: serverTimestamp()
+    }, { merge: true });
+  }
+
+  const known = getKnownChildren(projectId, type);
+  for (const id of known) {
+    if (!currentIds.has(id)) await deleteDoc(doc(db, "projects", projectId, type, id));
+  }
+  setKnownChildren(projectId, type, currentIds);
+}
+
 async function syncWorkspaceToFirestore(workspace, user) {
   if (!user || currentRole === "viewer") return;
   const projects = workspace?.projects || [];
   const currentIds = new Set(projects.map(p => p.id).filter(Boolean));
+
   for (const p of projects) {
     if (!p.id) continue;
     await setDoc(doc(db, "projects", p.id), {
-      data: stripBinary(p), updatedBy: user.uid, updatedByEmail: user.email || "", updatedAt: serverTimestamp(),
+      data: projectCore(p),
+      updatedBy: user.uid,
+      updatedByEmail: user.email || "",
+      updatedAt: serverTimestamp(),
       ...(knownProjectIds.has(p.id) ? {} : { createdBy: user.uid, createdByEmail: user.email || "" })
     }, { merge: true });
+    for (const type of STRUCTURED) await syncChildCollection(p.id, type, p[type] || [], user);
   }
+
   if (currentRole === "admin") {
-    for (const id of knownProjectIds) if (!currentIds.has(id)) await deleteDoc(doc(db, "projects", id));
+    for (const id of knownProjectIds) {
+      if (!currentIds.has(id)) await deleteDoc(doc(db, "projects", id));
+    }
   }
   knownProjectIds = currentIds;
 }
@@ -198,18 +279,14 @@ function installCloudSave() {
 function applyRoleMode() {
   const root = document.querySelector("#viewRoot");
   if (!root) return;
-
   if (currentRole === "viewer") {
     root.querySelectorAll("input, textarea, select").forEach(el => el.disabled = true);
     root.querySelectorAll(".button.primary, .button.danger, .mini-upload, .file-button").forEach(el => el.style.display = "none");
     const save = document.querySelector("#saveState");
     if (save) save.textContent = "View only";
   }
-
   if (!viewerObserver) {
-    viewerObserver = new MutationObserver(() => {
-      if (currentRole === "viewer") applyRoleMode();
-    });
+    viewerObserver = new MutationObserver(() => { if (currentRole === "viewer") applyRoleMode(); });
     viewerObserver.observe(root, { childList: true, subtree: true });
   }
 }
@@ -278,20 +355,17 @@ onAuthStateChanged(auth, async user => {
     showGate("請使用 Google 帳號登入");
     return;
   }
-
   try {
-    const isAccountSwitch = activeUid !== null && activeUid !== user.uid;
+    const previousUid = activeUid;
     await loadSession(user);
-
+    const isAccountSwitch = previousUid !== null && previousUid !== user.uid;
     if (!started) {
       installCloudSave();
       started = true;
-      await import("./app.js?v=20260820-account-switch-v1");
+      await import("./app.js?v=20260820-subcollections-v1");
       applyRoleMode();
-    } else {
-      // Auth changed while the app is already mounted: refresh the current view so
-      // controls are rebuilt for the newly loaded role without requiring F5.
-      if (isAccountSwitch || activeUid === user.uid) refreshCurrentViewForRole();
+    } else if (isAccountSwitch || previousUid === user.uid) {
+      refreshCurrentViewForRole();
     }
   } catch (e) {
     console.error(e);
