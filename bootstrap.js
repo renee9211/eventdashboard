@@ -1,5 +1,5 @@
 import {
-  auth, db, provider, signInWithRedirect, getRedirectResult, signOut, onAuthStateChanged,
+  auth, db, provider, signInWithPopup, signOut, onAuthStateChanged,
   collection, doc, getDocs, getDoc, setDoc, deleteDoc, serverTimestamp
 } from "./firebase.js";
 
@@ -38,23 +38,24 @@ function showApp(user) {
 }
 
 loginBtn.addEventListener("click", async () => {
-  authMessage.textContent = "Redirecting to Google sign-in…";
+  authMessage.textContent = "Opening Google sign-in…";
   loginBtn.disabled = true;
-  try { await signInWithRedirect(auth, provider); }
-  catch (e) {
+  try {
+    await signInWithPopup(auth, provider);
+  } catch (e) {
+    console.error(e);
+    if (e?.code === "auth/popup-blocked") {
+      authMessage.textContent = "登入視窗被瀏覽器阻擋，請允許此網站的彈出式視窗後再試一次。";
+    } else if (e?.code === "auth/popup-closed-by-user") {
+      authMessage.textContent = "登入視窗已關閉，請再按一次 Continue with Google。";
+    } else {
+      authMessage.textContent = `登入失敗：${e.message}`;
+    }
+  } finally {
     loginBtn.disabled = false;
-    authMessage.textContent = `登入失敗：${e.message}`;
   }
 });
 logoutBtn.addEventListener("click", () => signOut(auth));
-
-try {
-  const result = await getRedirectResult(auth);
-  if (result?.user) authMessage.textContent = "Google 登入成功，正在載入專案…";
-} catch (e) {
-  console.error(e);
-  authMessage.textContent = `登入失敗：${e.message}`;
-}
 
 async function ensureUserProfile(user) {
   const ref = doc(db, "users", user.uid);
@@ -62,7 +63,6 @@ async function ensureUserProfile(user) {
   const allUsers = await getDocs(collection(db, "users"));
   const admins = allUsers.docs.filter(d => d.data()?.role === "admin");
 
-  // Recovery rule: the system must always have at least one admin.
   if (existing.exists()) {
     const data = existing.data();
     currentRole = data.role || "viewer";
@@ -207,13 +207,11 @@ async function renderUsers() {
       const original = sel.dataset.original || "viewer";
       const next = sel.value;
       const isLastAdmin = original === "admin" && adminIds.length === 1;
-
       if (isLastAdmin && next !== "admin") {
         alert("系統至少需要保留一位 Admin，最後一位 Admin 不能降級。");
         sel.value = "admin";
         return;
       }
-
       await setDoc(doc(db, "users", targetUid), { role: next, updatedAt: serverTimestamp() }, { merge: true });
       sel.dataset.original = next;
       if (targetUid === auth.currentUser.uid) {
@@ -246,7 +244,7 @@ onAuthStateChanged(auth, async user => {
     installCloudSave(user);
     showApp(user);
     started = true;
-    await import("./app.js?v=20260820-role-v2");
+    await import("./app.js?v=20260820-role-v3");
     applyViewerMode();
   } catch (e) {
     console.error(e);
