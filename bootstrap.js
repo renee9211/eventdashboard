@@ -30,9 +30,8 @@ function showApp(user) {
 loginBtn.addEventListener("click", async () => {
   authMessage.textContent = "Redirecting to Google sign-in…";
   loginBtn.disabled = true;
-  try {
-    await signInWithRedirect(auth, provider);
-  } catch (e) {
+  try { await signInWithRedirect(auth, provider); }
+  catch (e) {
     loginBtn.disabled = false;
     authMessage.textContent = `登入失敗：${e.message}`;
   }
@@ -47,13 +46,14 @@ try {
   authMessage.textContent = `登入失敗：${e.message}`;
 }
 
-async function loadCloudWorkspace(user) {
-  cloudRef = doc(db, "workspaces", user.uid);
+async function loadSharedWorkspace(user) {
+  cloudRef = doc(db, "shared", "workspace");
   const snap = await getDoc(cloudRef);
   if (snap.exists() && snap.data().workspace) {
     localStorage.setItem(WORKSPACE_KEY, JSON.stringify(snap.data().workspace));
     return;
   }
+
   let local = localStorage.getItem(WORKSPACE_KEY);
   if (!local) {
     const legacy = localStorage.getItem(LEGACY_KEY);
@@ -65,13 +65,16 @@ async function loadCloudWorkspace(user) {
       } catch {}
     }
   }
-  if (local) {
-    try {
-      await setDoc(cloudRef, { workspace: JSON.parse(local), ownerUid: user.uid, ownerEmail: user.email || "", updatedAt: serverTimestamp() }, { merge: true });
-    } catch (e) { console.warn("Initial Firebase save failed", e); }
-  } else {
-    await setDoc(cloudRef, { workspace: { projects: [], activeId: null }, ownerUid: user.uid, ownerEmail: user.email || "", updatedAt: serverTimestamp() }, { merge: true });
-  }
+
+  const workspace = local ? JSON.parse(local) : { projects: [], activeId: null };
+  await setDoc(cloudRef, {
+    workspace,
+    createdBy: user.uid,
+    createdByEmail: user.email || "",
+    updatedBy: user.uid,
+    updatedByEmail: user.email || "",
+    updatedAt: serverTimestamp()
+  }, { merge: true });
 }
 
 function installCloudSave(user) {
@@ -83,7 +86,12 @@ function installCloudSave(user) {
     saveTimer = setTimeout(async () => {
       try {
         const workspace = JSON.parse(value);
-        await setDoc(cloudRef, { workspace, ownerUid: user.uid, ownerEmail: user.email || "", updatedAt: serverTimestamp() }, { merge: true });
+        await setDoc(cloudRef, {
+          workspace,
+          updatedBy: user.uid,
+          updatedByEmail: user.email || "",
+          updatedAt: serverTimestamp()
+        }, { merge: true });
         const s = document.querySelector("#saveState");
         if (s) s.textContent = "Saved to Firebase";
       } catch (e) {
@@ -103,8 +111,8 @@ onAuthStateChanged(auth, async user => {
   }
   if (started) { showApp(user); return; }
   try {
-    authMessage.textContent = "Loading projects from Firebase…";
-    await loadCloudWorkspace(user);
+    authMessage.textContent = "Loading shared projects from Firebase…";
+    await loadSharedWorkspace(user);
     installCloudSave(user);
     showApp(user);
     started = true;
