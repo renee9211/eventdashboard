@@ -19,6 +19,9 @@ let started = false;
 let saveTimer = null;
 let knownProjectIds = new Set();
 let currentRole = "viewer";
+let activeUid = null;
+let cloudSaveInstalled = false;
+let viewerObserver = null;
 
 function showGate(message = "請登入以繼續") {
   gate.classList.remove("auth-hidden");
@@ -37,12 +40,19 @@ function showApp(user) {
   if (newBtn) newBtn.style.display = currentRole === "viewer" ? "none" : "";
 }
 
+function refreshCurrentViewForRole() {
+  if (!started) return;
+  const activeNav = document.querySelector(".nav-item.active");
+  if (activeNav && typeof activeNav.onclick === "function") activeNav.onclick();
+  setTimeout(applyRoleMode, 0);
+}
+
 loginBtn.addEventListener("click", async () => {
   authMessage.textContent = "Opening Google sign-in…";
   loginBtn.disabled = true;
   try {
     const result = await signInWithPopup(auth, provider);
-    if (result?.user) authMessage.textContent = "Google 登入成功，正在載入專案…";
+    if (result?.user) authMessage.textContent = "Google 登入成功，正在載入權限…";
   } catch (e) {
     console.error(e);
     if (e?.code === "auth/popup-blocked") {
@@ -56,7 +66,11 @@ loginBtn.addEventListener("click", async () => {
     loginBtn.disabled = false;
   }
 });
-logoutBtn.addEventListener("click", () => signOut(auth));
+
+logoutBtn.addEventListener("click", async () => {
+  usersModal.classList.add("hidden");
+  await signOut(auth);
+});
 
 async function ensureUserProfile(user) {
   const ref = doc(db, "users", user.uid);
@@ -73,8 +87,6 @@ async function ensureUserProfile(user) {
     return;
   }
 
-  // After the first admin has been established, every newly signed-in account starts as Viewer.
-  // Admin promotion is intentionally handled only through the Users panel.
   currentRole = "viewer";
   await setDoc(ref, {
     uid: user.uid,
@@ -143,7 +155,7 @@ async function loadProjectsFromFirestore(user) {
 }
 
 async function syncWorkspaceToFirestore(workspace, user) {
-  if (currentRole === "viewer") return;
+  if (!user || currentRole === "viewer") return;
   const projects = workspace?.projects || [];
   const currentIds = new Set(projects.map(p => p.id).filter(Boolean));
   for (const p of projects) {
@@ -159,7 +171,9 @@ async function syncWorkspaceToFirestore(workspace, user) {
   knownProjectIds = currentIds;
 }
 
-function installCloudSave(user) {
+function installCloudSave() {
+  if (cloudSaveInstalled) return;
+  cloudSaveInstalled = true;
   const nativeSet = localStorage.setItem.bind(localStorage);
   localStorage.setItem = function(key, value) {
     nativeSet(key, value);
@@ -167,8 +181,11 @@ function installCloudSave(user) {
     clearTimeout(saveTimer);
     saveTimer = setTimeout(async () => {
       try {
+        const user = auth.currentUser;
+        if (!user || user.uid !== activeUid) return;
         await syncWorkspaceToFirestore(JSON.parse(value), user);
-        const s = document.querySelector("#saveState"); if (s) s.textContent = "Saved to Firestore";
+        const s = document.querySelector("#saveState");
+        if (s) s.textContent = "Saved to Firestore";
       } catch (e) {
         console.error(e);
         const s = document.querySelector("#saveState");
@@ -178,16 +195,23 @@ function installCloudSave(user) {
   };
 }
 
-function applyViewerMode() {
-  const apply = () => {
-    if (currentRole !== "viewer") return;
-    document.querySelectorAll("#viewRoot input, #viewRoot textarea, #viewRoot select").forEach(el => el.disabled = true);
-    document.querySelectorAll("#viewRoot .button.primary, #viewRoot .button.danger, #viewRoot .mini-upload, #viewRoot .file-button").forEach(el => el.style.display = "none");
-    const save = document.querySelector("#saveState"); if (save) save.textContent = "View only";
-  };
-  apply();
-  const obs = new MutationObserver(apply);
-  obs.observe(document.querySelector("#viewRoot"), { childList: true, subtree: true });
+function applyRoleMode() {
+  const root = document.querySelector("#viewRoot");
+  if (!root) return;
+
+  if (currentRole === "viewer") {
+    root.querySelectorAll("input, textarea, select").forEach(el => el.disabled = true);
+    root.querySelectorAll(".button.primary, .button.danger, .mini-upload, .file-button").forEach(el => el.style.display = "none");
+    const save = document.querySelector("#saveState");
+    if (save) save.textContent = "View only";
+  }
+
+  if (!viewerObserver) {
+    viewerObserver = new MutationObserver(() => {
+      if (currentRole === "viewer") applyRoleMode();
+    });
+    viewerObserver.observe(root, { childList: true, subtree: true });
+  }
 }
 
 async function renderUsers() {
@@ -213,9 +237,10 @@ async function renderUsers() {
       try {
         await setDoc(doc(db, "users", targetUid), { role: next, updatedAt: serverTimestamp() }, { merge: true });
         sel.dataset.original = next;
-        if (targetUid === auth.currentUser.uid) {
+        if (targetUid === auth.currentUser?.uid) {
           currentRole = next;
           showApp(auth.currentUser);
+          refreshCurrentViewForRole();
         }
         await renderUsers();
       } catch (e) {
@@ -228,30 +253,50 @@ async function renderUsers() {
 }
 
 usersBtn.addEventListener("click", async () => {
+  if (currentRole !== "admin") return;
   usersModal.classList.remove("hidden");
   await renderUsers();
 });
 document.querySelectorAll("[data-close-users]").forEach(x => x.addEventListener("click", () => usersModal.classList.add("hidden")));
 
+async function loadSession(user) {
+  currentRole = "viewer";
+  activeUid = user.uid;
+  authMessage.textContent = "Loading user permissions…";
+  await ensureUserProfile(user);
+  authMessage.textContent = "Loading shared projects from Firestore…";
+  await loadProjectsFromFirestore(user);
+  showApp(user);
+}
+
 onAuthStateChanged(auth, async user => {
   if (!user) {
+    activeUid = null;
+    currentRole = "viewer";
     loginBtn.disabled = false;
+    usersModal.classList.add("hidden");
     showGate("請使用 Google 帳號登入");
     return;
   }
-  if (started) { showApp(user); return; }
+
   try {
-    authMessage.textContent = "Loading user permissions…";
-    await ensureUserProfile(user);
-    authMessage.textContent = "Loading shared projects from Firestore…";
-    await loadProjectsFromFirestore(user);
-    installCloudSave(user);
-    showApp(user);
-    started = true;
-    await import("./app.js?v=20260820-role-secure-v1");
-    applyViewerMode();
+    const isAccountSwitch = activeUid !== null && activeUid !== user.uid;
+    await loadSession(user);
+
+    if (!started) {
+      installCloudSave();
+      started = true;
+      await import("./app.js?v=20260820-account-switch-v1");
+      applyRoleMode();
+    } else {
+      // Auth changed while the app is already mounted: refresh the current view so
+      // controls are rebuilt for the newly loaded role without requiring F5.
+      if (isAccountSwitch || activeUid === user.uid) refreshCurrentViewForRole();
+    }
   } catch (e) {
     console.error(e);
+    activeUid = null;
+    currentRole = "viewer";
     showGate(`Firebase 連線失敗：${e.message}`);
   }
 });
