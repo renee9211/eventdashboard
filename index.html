@@ -1,1 +1,214 @@
-<!DOCTYPE html><html lang="zh-Hant"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Event Project Report System</title><link rel="stylesheet" href="./style.css?v=20260821-pre-event-v2"><link rel="stylesheet" href="./rsvp-manager-v3.css?v=20260821-rsvp-manager-v4"><link rel="stylesheet" href="./cloud-media-v1.css?v=20260821-cloud-media-v1"><link rel="stylesheet" href="./survey-analysis-v1.css?v=20260821-survey-v2"><link rel="stylesheet" href="./report-generator-v1.css?v=20260821-report-v1"><script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script></head><body><div id="authGate" class="auth-gate"><div class="auth-card"><div class="brand-mark auth-logo">ER</div><div class="eyebrow">EVENT REPORT SYSTEM</div><h1>Event Project Workspace</h1><p>請使用 Google 帳號登入後管理活動 Plan 與結案資料。</p><button id="googleLoginBtn" class="button primary auth-button">Continue with Google</button><div id="authMessage" class="auth-message">Connecting to Firebase…</div></div></div><div id="systemApp" class="app-shell auth-hidden"><aside class="sidebar"><div class="brand"><div class="brand-mark">ER</div><div><strong>Event Report</strong><span>Plan → Post Event</span></div></div><nav id="projectNav" class="nav"><button class="nav-item active" data-view="projects">Projects</button><button class="nav-item project-only" data-view="overview">Overview</button><div class="nav-label project-only">PRE-EVENT PLAN</div><button class="nav-item project-only" data-view="event-info">01 Event Info</button><button class="nav-item project-only" data-view="visual">02 Event KV</button><button class="nav-item project-only" data-view="agenda">03 Agenda</button><button class="nav-item project-only" data-view="speakers">04 Speakers</button><button class="nav-item project-only" data-view="rsvp">05 RSVP</button><button class="nav-item project-only" data-view="collaterals" data-phase="plan">06 Collaterals Plan</button><button class="nav-item project-only" data-view="giveaway" data-phase="plan">07 Giveaway Plan</button><button class="nav-item project-only" data-view="media">Media Promotion</button><div class="nav-label project-only">POST-EVENT</div><button class="nav-item project-only" data-view="rsvp" data-phase="actual">08 Attendance Result</button><button class="nav-item project-only" data-view="photos">09 Event Highlights</button><button class="nav-item project-only" data-view="collaterals" data-phase="actual">10 Collaterals Actual</button><button class="nav-item project-only" data-view="giveaway" data-phase="actual">11 Giveaway Actual</button><button class="nav-item project-only" data-view="survey">12 Survey Analysis</button><button class="nav-item project-only" data-view="recap">13 Recap & Evaluation</button><div class="nav-label project-only">REPORT</div><button class="nav-item report-nav project-only" data-view="report">14 Generate Report</button></nav></aside><main class="main"><header class="topbar"><div><div class="eyebrow" id="headerTag">WORKSPACE</div><h1 id="projectTitle">Projects</h1><div id="projectMeta" class="project-meta">從活動 Plan 累積資料，活動後補實際成果並生成結案報告</div></div><div class="top-actions"><span id="saveState" class="save-state">Firebase</span><span id="userRole" class="role-chip">VIEWER</span><span id="userName" class="user-chip"></span><button id="usersBtn" class="button ghost" style="display:none">Users</button><button id="logoutBtn" class="button ghost">Logout</button><button id="newProjectBtn" class="button primary">+ New Project</button><button id="generateBtn" class="button ghost project-only" data-jump="report">Generate Report</button></div></header><section id="viewRoot"></section></main></div><div id="projectModal" class="modal hidden"><div class="modal-backdrop" data-close-modal></div><div class="modal-card"><div class="modal-head"><div><div class="eyebrow">NEW PROJECT</div><h2>建立活動專案</h2><p>先建立 Plan 基本資料，活動後再補照片與實際成果。</p></div><button class="modal-close" data-close-modal>×</button></div><form id="projectForm" class="form-grid"><div class="field full"><label>Event Name *</label><input name="eventName" required placeholder="例如 HPE AI Roadshow - Taiwan"></div><div class="field"><label>Client</label><input name="client"></div><div class="field"><label>Event Date</label><input name="eventDate" type="date"></div><div class="field"><label>Venue</label><input name="venue"></div><div class="field"><label>Room</label><input name="room"></div><div class="field"><label>Event Type</label><input name="eventType"></div><div class="field"><label>Expected Attendance</label><input name="expectedAttendance" type="number" min="0"></div><div class="field full"><label>Event Objective</label><textarea name="objective"></textarea></div><div class="modal-actions full"><button type="button" class="button ghost" data-close-modal>Cancel</button><button class="button primary" type="submit">Create Project</button></div></form></div></div><div id="usersModal" class="modal hidden"><div class="modal-backdrop" data-close-users></div><div class="modal-card users-modal-card"><div class="modal-head"><div><div class="eyebrow">ADMIN</div><h2>User Permissions</h2><p>新登入的使用者預設為 Viewer；Admin 可在這裡調整權限。</p></div><button class="modal-close" data-close-users>×</button></div><div class="role-guide"><span><b>Admin</b> 全部權限</span><span><b>Editor</b> 新增與編輯</span><span><b>Viewer</b> 僅檢視</span></div><div id="usersList" class="users-list"><div class="empty">Loading users…</div></div></div></div><template id="overviewTemplate"><div class="page"><div class="hero-card"><div><div class="eyebrow">PLAN → POST EVENT REPORT</div><h2>活動前先建立 Plan，活動後只補實際成果</h2><p>Event Info、KV、Agenda、Speakers、RSVP、製作物與禮品在活動前建立；活動結束後補出席結果、現場照片、問卷與 Recap。</p></div><div class="hero-progress"><div class="progress-ring"><span id="completionPercent">0%</span></div><small>Report readiness</small></div></div><div class="section-head"><div><h3>Project Readiness</h3><p>Plan 資料會直接沿用到 Post Event Report，不需要活動後重新輸入。</p></div></div><div id="readinessGrid" class="readiness-grid"></div></div></template><template id="formTemplate"><div class="page"><div class="section-head"><div><div class="eyebrow" id="formEyebrow"></div><h2 id="formTitle"></h2><p id="formDesc"></p></div></div><div id="formContent"></div></div></template><script type="module" src="./bootstrap-v2.js?v=20260821-fast-sync-v1"></script><script type="module" src="./plan-workflow.js?v=20260820-plan-actual-v1"></script><script type="module" src="./rsvp-manager-v4.js?v=20260821-rsvp-manager-v4"></script><script type="module" src="./pre-event-v2.js?v=20260821-pre-event-v2"></script><script type="module" src="./cloud-media-v1.js?v=20260821-cloud-media-v1"></script><script type="module" src="./survey-analysis-v2.js?v=20260821-survey-v2"></script><script type="module" src="./report-generator-v1.js?v=20260821-report-v1"></script></body></html>
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Event Project Report System</title>
+
+  <!-- Core styles -->
+  <link rel="stylesheet" href="./style.css?v=20260821-pre-event-v2">
+  <link rel="stylesheet" href="./rsvp-manager-v3.css?v=20260821-rsvp-manager-v4">
+  <link rel="stylesheet" href="./cloud-media-v1.css?v=20260821-cloud-media-v1">
+  <link rel="stylesheet" href="./survey-analysis-v1.css?v=20260821-survey-v2">
+  <link rel="stylesheet" href="./report-generator-v1.css?v=20260821-report-v1">
+
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+</head>
+<body>
+  <!-- Auth -->
+  <div id="authGate" class="auth-gate">
+    <div class="auth-card">
+      <div class="brand-mark auth-logo">ER</div>
+      <div class="eyebrow">EVENT REPORT SYSTEM</div>
+      <h1>Event Project Workspace</h1>
+      <p>請使用 Google 帳號登入後管理活動 Plan 與結案資料。</p>
+      <button id="googleLoginBtn" class="button primary auth-button">Continue with Google</button>
+      <div id="authMessage" class="auth-message">Connecting to Firebase…</div>
+    </div>
+  </div>
+
+  <!-- App shell -->
+  <div id="systemApp" class="app-shell auth-hidden">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-mark">ER</div>
+        <div>
+          <strong>Event Report</strong>
+          <span>Plan → Post Event</span>
+        </div>
+      </div>
+
+      <nav id="projectNav" class="nav">
+        <button class="nav-item active" data-view="projects">Projects</button>
+        <button class="nav-item project-only" data-view="overview">Overview</button>
+
+        <div class="nav-label project-only">PRE-EVENT PLAN</div>
+        <button class="nav-item project-only" data-view="event-info">01 Event Info</button>
+        <button class="nav-item project-only" data-view="visual">02 Event KV</button>
+        <button class="nav-item project-only" data-view="agenda">03 Agenda</button>
+        <button class="nav-item project-only" data-view="speakers">04 Speakers</button>
+        <button class="nav-item project-only" data-view="rsvp">05 RSVP</button>
+        <button class="nav-item project-only" data-view="collaterals" data-phase="plan">06 Collaterals Plan</button>
+        <button class="nav-item project-only" data-view="giveaway" data-phase="plan">07 Giveaway Plan</button>
+        <button class="nav-item project-only" data-view="media">Media Promotion</button>
+
+        <div class="nav-label project-only">POST-EVENT</div>
+        <button class="nav-item project-only" data-view="rsvp" data-phase="actual">08 Attendance Result</button>
+        <button class="nav-item project-only" data-view="photos">09 Event Highlights</button>
+        <button class="nav-item project-only" data-view="collaterals" data-phase="actual">10 Collaterals Actual</button>
+        <button class="nav-item project-only" data-view="giveaway" data-phase="actual">11 Giveaway Actual</button>
+        <button class="nav-item project-only" data-view="survey">12 Survey Analysis</button>
+        <button class="nav-item project-only" data-view="recap">13 Recap & Evaluation</button>
+
+        <div class="nav-label project-only">REPORT</div>
+        <button class="nav-item report-nav project-only" data-view="report">14 Generate Report</button>
+      </nav>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <div>
+          <div class="eyebrow" id="headerTag">WORKSPACE</div>
+          <h1 id="projectTitle">Projects</h1>
+          <div id="projectMeta" class="project-meta">從活動 Plan 累積資料，活動後補實際成果並生成結案報告</div>
+        </div>
+
+        <div class="top-actions">
+          <span id="saveState" class="save-state">Firebase</span>
+          <span id="userRole" class="role-chip">VIEWER</span>
+          <span id="userName" class="user-chip"></span>
+          <button id="usersBtn" class="button ghost" style="display:none">Users</button>
+          <button id="logoutBtn" class="button ghost">Logout</button>
+          <button id="newProjectBtn" class="button primary">+ New Project</button>
+          <button id="generateBtn" class="button ghost project-only" data-jump="report">Generate Report</button>
+        </div>
+      </header>
+
+      <section id="viewRoot"></section>
+    </main>
+  </div>
+
+  <!-- New project modal -->
+  <div id="projectModal" class="modal hidden">
+    <div class="modal-backdrop" data-close-modal></div>
+    <div class="modal-card">
+      <div class="modal-head">
+        <div>
+          <div class="eyebrow">NEW PROJECT</div>
+          <h2>建立活動專案</h2>
+          <p>先建立 Plan 基本資料，活動後再補照片與實際成果。</p>
+        </div>
+        <button class="modal-close" data-close-modal>×</button>
+      </div>
+
+      <form id="projectForm" class="form-grid">
+        <div class="field full">
+          <label>Event Name *</label>
+          <input name="eventName" required placeholder="例如 HPE AI Roadshow - Taiwan">
+        </div>
+        <div class="field">
+          <label>Client</label>
+          <input name="client">
+        </div>
+        <div class="field">
+          <label>Event Date</label>
+          <input name="eventDate" type="date">
+        </div>
+        <div class="field">
+          <label>Venue</label>
+          <input name="venue">
+        </div>
+        <div class="field">
+          <label>Room</label>
+          <input name="room">
+        </div>
+        <div class="field">
+          <label>Event Type</label>
+          <input name="eventType">
+        </div>
+        <div class="field">
+          <label>Expected Attendance</label>
+          <input name="expectedAttendance" type="number" min="0">
+        </div>
+        <div class="field full">
+          <label>Event Objective</label>
+          <textarea name="objective"></textarea>
+        </div>
+        <div class="modal-actions full">
+          <button type="button" class="button ghost" data-close-modal>Cancel</button>
+          <button class="button primary" type="submit">Create Project</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- User permissions modal -->
+  <div id="usersModal" class="modal hidden">
+    <div class="modal-backdrop" data-close-users></div>
+    <div class="modal-card users-modal-card">
+      <div class="modal-head">
+        <div>
+          <div class="eyebrow">ADMIN</div>
+          <h2>User Permissions</h2>
+          <p>新登入的使用者預設為 Viewer；Admin 可在這裡調整權限。</p>
+        </div>
+        <button class="modal-close" data-close-users>×</button>
+      </div>
+      <div class="role-guide">
+        <span><b>Admin</b> 全部權限</span>
+        <span><b>Editor</b> 新增與編輯</span>
+        <span><b>Viewer</b> 僅檢視</span>
+      </div>
+      <div id="usersList" class="users-list">
+        <div class="empty">Loading users…</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- View templates -->
+  <template id="overviewTemplate">
+    <div class="page">
+      <div class="hero-card">
+        <div>
+          <div class="eyebrow">PLAN → POST EVENT REPORT</div>
+          <h2>活動前先建立 Plan，活動後只補實際成果</h2>
+          <p>Event Info、KV、Agenda、Speakers、RSVP、製作物與禮品在活動前建立；活動結束後補出席結果、現場照片、問卷與 Recap。</p>
+        </div>
+        <div class="hero-progress">
+          <div class="progress-ring"><span id="completionPercent">0%</span></div>
+          <small>Report readiness</small>
+        </div>
+      </div>
+      <div class="section-head">
+        <div>
+          <h3>Project Readiness</h3>
+          <p>Plan 資料會直接沿用到 Post Event Report，不需要活動後重新輸入。</p>
+        </div>
+      </div>
+      <div id="readinessGrid" class="readiness-grid"></div>
+    </div>
+  </template>
+
+  <template id="formTemplate">
+    <div class="page">
+      <div class="section-head">
+        <div>
+          <div class="eyebrow" id="formEyebrow"></div>
+          <h2 id="formTitle"></h2>
+          <p id="formDesc"></p>
+        </div>
+      </div>
+      <div id="formContent"></div>
+    </div>
+  </template>
+
+  <!-- Application modules -->
+  <script type="module" src="./bootstrap-v2.js?v=20260821-fast-sync-v1"></script>
+  <script type="module" src="./plan-workflow.js?v=20260820-plan-actual-v1"></script>
+  <script type="module" src="./rsvp-manager-v4.js?v=20260821-rsvp-manager-v4"></script>
+  <script type="module" src="./pre-event-v2.js?v=20260821-pre-event-v2"></script>
+  <script type="module" src="./cloud-media-v1.js?v=20260821-cloud-media-v1"></script>
+  <script type="module" src="./survey-analysis-v2.js?v=20260821-survey-v2"></script>
+  <script type="module" src="./report-generator-v1.js?v=20260821-report-v1"></script>
+</body>
+</html>
