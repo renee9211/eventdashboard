@@ -1,0 +1,26 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function hasUserProfile() {
+      return signedIn()
+        && firestore.exists(/databases/(default)/documents/users/$(request.auth.uid));
+    }
+
+    function role() {
+      return firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.role;
+    }
+
+    function canEdit() {
+      return hasUserProfile() && (role() == 'admin' || role() == 'editor');
+    }
+
+    match /projects/{projectId}/{allPaths=**} {
+      allow read: if hasUserProfile();
+      allow write: if canEdit();
+    }
+  }
+}
