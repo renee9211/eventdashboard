@@ -1,4 +1,4 @@
-import { exportProjectPptx } from "./pptx-export.js?v=20260821-pptx-v2";
+import { exportProjectPptx } from "./pptx-export.js?v=20260821-pptx-v3";
 
 const KEY='event-report-workspace-v1';
 const $=(s,r=document)=>r.querySelector(s), $$=(s,r=document)=>[...r.querySelectorAll(s)];
