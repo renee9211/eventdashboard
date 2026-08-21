@@ -10,9 +10,11 @@
   <link rel="stylesheet" href="./rsvp-manager-v3.css?v=20260821-rsvp-manager-v4">
   <link rel="stylesheet" href="./cloud-media-v1.css?v=20260821-cloud-media-v1">
   <link rel="stylesheet" href="./survey-analysis-v1.css?v=20260821-survey-v2">
+  <link rel="stylesheet" href="./report-template-manager-v1.css?v=20260821-template-v1">
   <link rel="stylesheet" href="./report-generator-v1.css?v=20260821-report-v1">
 
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
 </head>
 <body>
   <!-- Auth -->
@@ -61,6 +63,7 @@
         <button class="nav-item project-only" data-view="recap">13 Recap & Evaluation</button>
 
         <div class="nav-label project-only">REPORT</div>
+        <button class="nav-item project-only" data-view="report-template">Report Template</button>
         <button class="nav-item report-nav project-only" data-view="report">14 Generate Report</button>
       </nav>
     </aside>
@@ -209,6 +212,7 @@
   <script type="module" src="./pre-event-v2.js?v=20260821-pre-event-v2"></script>
   <script type="module" src="./cloud-media-v1.js?v=20260821-cloud-media-v1"></script>
   <script type="module" src="./survey-analysis-v2.js?v=20260821-survey-v2"></script>
+  <script type="module" src="./report-template-manager-v1.js?v=20260821-template-v1"></script>
   <script type="module" src="./report-generator-v1.js?v=20260821-report-v3"></script>
 </body>
 </html>
